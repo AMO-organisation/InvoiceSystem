@@ -1,0 +1,196 @@
+@page "/products"
+@inject IProductService ProductService
+@inject MoneyFormatter Money
+@inject DialogService Dialog
+@inject NavigationManager Navigation
+
+<PageTitle>Catalog · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Catalog"
+            Title="Products & services"
+            Lede="Reusable line items for invoices. Tax rates and prices are copied onto a line, where they can still be adjusted.">
+</PageHeader>
+
+@if (_error is not null)
+{
+    <div class="notice notice-error">@_error</div>
+}
+
+<div class="panel">
+    <div class="toolbar">
+        <input class="form-control search"
+               placeholder="Search the catalog…"
+               @bind="_search"
+               @bind:event="oninput" />
+        <select class="form-select" style="flex:0 0 150px;" @bind="_filter">
+            <option value="all">All items</option>
+            <option value="services">Services</option>
+            <option value="goods">Goods</option>
+            <option value="inactive">Inactive</option>
+        </select>
+        <span class="toolbar-count">@Filtered.Count item@(Filtered.Count == 1 ? string.Empty : "s")</span>
+    </div>
+
+    @if (!_loaded)
+    {
+        <div class="panel-body muted">Loading catalog…</div>
+    }
+    else if (_products.Count == 0)
+    {
+        <EmptyState Mark="+" Title="Your catalog is empty" Message="Add a product or service to speed up invoice building.">
+            <a href="products/new" class="btn btn-accent btn-sm">Add item</a>
+        </EmptyState>
+    }
+    else if (Filtered.Count == 0)
+    {
+        <EmptyState Mark="?" Title="No matches" Message="Try a different search term or filter." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="ledger">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th class="hide-sm">Type</th>
+                        <th class="num">Unit price</th>
+                        <th class="num hide-sm">Tax</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var product in Filtered)
+                    {
+                        <tr @oncontextmenu="e => OpenMenu(e, product)" @oncontextmenu:preventDefault="true">
+                            <td>
+                                <div class="row-title">
+                                    <a class="cell-title" href="products/@product.Id/edit">@product.Name</a>
+                                    <button type="button"
+                                            class="row-menu-btn"
+                                            title="Row actions"
+                                            aria-label="Row actions"
+                                            @onclick="e => OpenMenu(e, product)"
+                                            @onclick:stopPropagation="true">⋯</button>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(product.Description))
+                                {
+                                    <span class="cell-sub">@product.Description</span>
+                                }
+                            </td>
+                            <td class="hide-sm">
+                                <span class="chip">@(product.IsService ? "Service" : "Good")</span>
+                            </td>
+                            <td class="num">
+                                @Money.Format(product.UnitPrice)
+                                <span class="cell-sub">per @product.Unit</span>
+                            </td>
+                            <td class="num hide-sm">@(product.TaxRate == 0m ? "Exempt" : $"{product.TaxRate:0.##}%")</td>
+                            <td>
+                                <span class="status-pill @(product.IsActive ? "status-paid" : "status-void")">
+                                    @(product.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<RowContextMenu @ref="_menu" />
+
+@code {
+    private bool _loaded;
+    private string _search = string.Empty;
+    private string _filter = "all";
+    private string? _error;
+    private List<Product> _products = [];
+    private RowContextMenu _menu = default!;
+
+    private List<Product> Filtered
+    {
+        get
+        {
+            IEnumerable<Product> query = _products;
+
+            query = _filter switch
+            {
+                "services" => query.Where(product => product.IsService),
+                "goods" => query.Where(product => !product.IsService),
+                "inactive" => query.Where(product => !product.IsActive),
+                _ => query
+            };
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var term = _search.Trim();
+                query = query.Where(product =>
+                    product.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (product.Description?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+
+            return query.ToList();
+        }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _products = (await ProductService.GetAllAsync()).ToList();
+        _loaded = true;
+    }
+
+    private void OpenMenu(MouseEventArgs args, Product product)
+    {
+        _menu.Show(args.ClientX, args.ClientY,
+        [
+            new ContextMenuItem
+            {
+                Label = "Edit item",
+                Action = () =>
+                {
+                    Navigation.NavigateTo($"products/{product.Id}/edit");
+                    return Task.CompletedTask;
+                }
+            },
+            new ContextMenuItem
+            {
+                Label = product.IsActive ? "Hide" : "Activate",
+                Action = () => ToggleActiveAsync(product)
+            },
+            new ContextMenuItem
+            {
+                Label = "Delete item",
+                Danger = true,
+                SeparatorBefore = true,
+                Action = () => DeleteAsync(product)
+            }
+        ]);
+    }
+
+    private async Task ToggleActiveAsync(Product product)
+    {
+        _error = null;
+        var updated = product.Clone();
+        updated.IsActive = !updated.IsActive;
+        await ProductService.UpdateAsync(updated);
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private async Task DeleteAsync(Product product)
+    {
+        _error = null;
+
+        if (!await Dialog.ConfirmAsync($"Delete “{product.Name}” from the catalog? Existing invoice lines keep their snapshot."))
+        {
+            return;
+        }
+
+        await ProductService.DeleteAsync(product.Id);
+        await LoadAsync();
+        StateHasChanged();
+    }
+}

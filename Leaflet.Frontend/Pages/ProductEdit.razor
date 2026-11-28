@@ -1,0 +1,138 @@
+@page "/products/new"
+@page "/products/{Id:guid}/edit"
+@inject IProductService ProductService
+@inject ISettingsService Settings
+@inject NavigationManager Navigation
+
+<PageTitle>@(_isNew ? "New item" : "Edit item") · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Catalog"
+            Title="@(_isNew ? "Add a catalog item" : "Edit catalog item")"
+            Lede="@(_isNew ? "Set a default price and tax rate. You can still override both when the item is added to an invoice." : "Changes apply the next time this item is added to an invoice.")">
+    <Actions>
+        <a href="products" class="btn btn-ghost">Back to catalog</a>
+    </Actions>
+</PageHeader>
+
+@if (_notFound)
+{
+    <div class="notice notice-error">That catalog item could not be found.</div>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="notice notice-error">@_error</div>
+    }
+
+    <EditForm Model="_product" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+
+        <div class="panel">
+            <div class="panel-body">
+                <div class="eyebrow">Definition</div>
+                <h2 style="font-size:1.45rem;margin-bottom:1.15rem;">What are you charging for?</h2>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <label class="form-label" for="name">Name</label>
+                        <InputText id="name" class="form-control" @bind-Value="_product.Name" placeholder="Brand Identity System" />
+                        <ValidationMessage For="() => _product.Name" />
+                    </div>
+
+                    <div class="field full">
+                        <label class="form-label" for="description">Description</label>
+                        <InputTextArea id="description" class="form-control" @bind-Value="_product.Description" placeholder="A short description that appears on the invoice line." />
+                        <ValidationMessage For="() => _product.Description" />
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label" for="price">Unit price (@Settings.Current.CurrencyCode)</label>
+                        <InputNumber id="price" class="form-control" @bind-Value="_product.UnitPrice" step="0.01" min="0" />
+                        <ValidationMessage For="() => _product.UnitPrice" />
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label" for="unit">Unit</label>
+                        <InputText id="unit" class="form-control" @bind-Value="_product.Unit" placeholder="project, hour, set…" />
+                        <ValidationMessage For="() => _product.Unit" />
+                    </div>
+
+                    <div class="field">
+                        <label class="form-label" for="tax">Tax rate (%)</label>
+                        <InputNumber id="tax" class="form-control" @bind-Value="_product.TaxRate" step="0.01" min="0" max="100" />
+                        <ValidationMessage For="() => _product.TaxRate" />
+                    </div>
+
+                    <div class="field d-flex align-items-end gap-3" style="flex-wrap:wrap;">
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" id="service" @bind-Value="_product.IsService" />
+                            <label class="form-check-label" for="service">This is a service</label>
+                        </div>
+                        <div class="form-check">
+                            <InputCheckbox class="form-check-input" id="active" @bind-Value="_product.IsActive" />
+                            <label class="form-check-label" for="active">Available on new invoices</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-head" style="justify-content:flex-end;border-bottom:0;border-top:1px solid var(--line);">
+                <a href="products" class="btn btn-ghost">Cancel</a>
+                <button type="submit" class="btn btn-accent">@(_isNew ? "Save item" : "Update item")</button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Product _product = new();
+    private bool _isNew = true;
+    private bool _notFound;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Id is null)
+        {
+            _isNew = true;
+            _product.TaxRate = Settings.Current.DefaultTaxRate;
+            return;
+        }
+
+        _isNew = false;
+        var product = await ProductService.GetByIdAsync(Id.Value);
+        if (product is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _product = product;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+
+        try
+        {
+            if (_isNew)
+            {
+                await ProductService.AddAsync(_product);
+            }
+            else
+            {
+                await ProductService.UpdateAsync(_product);
+            }
+
+            Navigation.NavigateTo("products");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+}

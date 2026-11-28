@@ -1,0 +1,65 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<div class="app-shell">
+    <aside class="sidebar">
+        <NavMenu />
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <div class="topbar-left">
+                <span class="chip"><span class="chip-dot"></span> In-memory demo</span>
+                <span class="topbar-note">Data resets when the page reloads</span>
+            </div>
+            <div class="topbar-actions">
+                @if (_topbarAction is { } action)
+                {
+                    <a href="@action.Href" class="btn btn-accent btn-sm">@action.Label</a>
+                }
+            </div>
+        </header>
+
+        <article class="content">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    private TopbarAction? _topbarAction;
+
+    protected override void OnInitialized()
+    {
+        UpdateTopbarAction();
+        Navigation.LocationChanged += HandleLocationChanged;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        UpdateTopbarAction();
+        StateHasChanged();
+    }
+
+    private void UpdateTopbarAction()
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var path = relativePath.Split('?', '#')[0].Trim('/');
+
+        _topbarAction = path switch
+        {
+            _ when path.StartsWith("customers", StringComparison.OrdinalIgnoreCase) =>
+                new TopbarAction("Add customer", "customers/new"),
+            _ when path.StartsWith("products", StringComparison.OrdinalIgnoreCase) =>
+                new TopbarAction("Add item", "products/new"),
+            _ when path.StartsWith("invoices", StringComparison.OrdinalIgnoreCase) =>
+                new TopbarAction("New invoice", "invoices/new"),
+            _ => null
+        };
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= HandleLocationChanged;
+
+    private sealed record TopbarAction(string Label, string Href);
+}

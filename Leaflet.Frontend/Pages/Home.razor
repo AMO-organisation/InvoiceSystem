@@ -1,0 +1,198 @@
+﻿@page "/"
+@inject IInvoiceService InvoiceService
+@inject ICustomerService CustomerService
+@inject IProductService ProductService
+@inject MoneyFormatter Money
+
+<PageTitle>Overview · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Studio overview"
+            Title="The ledger, at a glance."
+            Lede="A live view of this in-memory session. Everything here resets when the page reloads.">
+    <Actions>
+        <a href="invoices/new" class="btn btn-accent">New invoice</a>
+        <a href="customers/new" class="btn btn-ghost">Add customer</a>
+    </Actions>
+</PageHeader>
+
+@if (!_loaded)
+{
+    <p class="muted">Reading the ledger…</p>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total invoiced</div>
+            <div class="stat-value">@Money.Format(_totalInvoiced)</div>
+            <div class="stat-note">All issued and paid invoices</div>
+        </div>
+        <div class="stat-card gold">
+            <div class="stat-label">Outstanding</div>
+            <div class="stat-value">@Money.Format(_outstanding)</div>
+            <div class="stat-note">@_issuedCount open invoice@(_issuedCount == 1 ? string.Empty : "s")</div>
+        </div>
+        <div class="stat-card sage">
+            <div class="stat-label">Collected</div>
+            <div class="stat-value">@Money.Format(_collected)</div>
+            <div class="stat-note">@_paidCount settled invoice@(_paidCount == 1 ? string.Empty : "s")</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">In progress</div>
+            <div class="stat-value">@_draftCount</div>
+            <div class="stat-note">Draft@(_draftCount == 1 ? string.Empty : "s") waiting to be finalized</div>
+        </div>
+    </div>
+
+    @if (_overdueCount > 0)
+    {
+        <div class="notice notice-info">
+            <span class="mono">!</span>
+            <span>
+                <strong>@_overdueCount invoice@(_overdueCount == 1 ? " is" : "s are") past due.</strong>
+                Open the invoice list to review and follow up.
+            </span>
+        </div>
+    }
+
+    <div class="split-grid">
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Recent activity</h2>
+                <a class="link-quiet" href="invoices">View all invoices →</a>
+            </div>
+            @if (_recent.Count == 0)
+            {
+                <EmptyState Mark="+" Title="No invoices yet" Message="Create your first invoice to start the ledger.">
+                    <a href="invoices/new" class="btn btn-accent btn-sm">Create invoice</a>
+                </EmptyState>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="ledger">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th>Customer</th>
+                                <th class="hide-sm">Issued</th>
+                                <th class="num">Total</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var invoice in _recent)
+                            {
+                                <tr>
+                                    <td>
+                                        <a class="cell-title mono" href="@InvoiceHref(invoice)">
+                                            @(invoice.Number ?? "Draft")
+                                        </a>
+                                    </td>
+                                    <td>
+                                        @invoice.CustomerName
+                                        <span class="cell-sub">Due @invoice.DueDate.ToString("MMM d")</span>
+                                    </td>
+                                    <td class="mono hide-sm">@invoice.IssueDate.ToString("MMM d, yyyy")</td>
+                                    <td class="num">@Money.Format(Total(invoice))</td>
+                                    <td><StatusBadge Invoice="invoice" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <div class="stack">
+            <section class="panel panel-pad">
+                <div class="eyebrow">Studio pulse</div>
+                <h2 style="font-size:1.45rem;margin-bottom:1rem;">Where things stand</h2>
+                <div class="totals-row">
+                    <span>Draft invoices</span>
+                    <span class="amount">@_draftCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Issued and open</span>
+                    <span class="amount">@_issuedCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Past due</span>
+                    <span class="amount">@_overdueCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Paid</span>
+                    <span class="amount">@_paidCount</span>
+                </div>
+                <hr class="divider" />
+                <div class="totals-row">
+                    <span>Customers</span>
+                    <span class="amount">@_customerCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Catalog items</span>
+                    <span class="amount">@_productCount</span>
+                </div>
+            </section>
+
+            <section class="panel panel-pad">
+                <div class="eyebrow">Quick actions</div>
+                <div class="d-grid gap-2">
+                    <a href="invoices/new" class="btn btn-accent">Start an invoice</a>
+                    <a href="customers" class="btn btn-ghost">Manage customers</a>
+                    <a href="products" class="btn btn-ghost">Browse the catalog</a>
+                </div>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loaded;
+    private IReadOnlyList<Invoice> _recent = [];
+    private decimal _totalInvoiced;
+    private decimal _outstanding;
+    private decimal _collected;
+    private int _draftCount;
+    private int _issuedCount;
+    private int _paidCount;
+    private int _overdueCount;
+    private int _customerCount;
+    private int _productCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var invoices = await InvoiceService.GetAllAsync();
+        var customers = await CustomerService.GetAllAsync();
+        var products = await ProductService.GetAllAsync();
+
+        var active = invoices.Where(invoice => invoice.Status is InvoiceStatus.Issued or InvoiceStatus.Paid).ToList();
+        _totalInvoiced = active.Sum(Total);
+        _outstanding = invoices
+            .Where(invoice => invoice.Status == InvoiceStatus.Issued)
+            .Sum(invoice => InvoiceCalculator.Calculate(invoice).BalanceDue);
+        _collected = invoices
+            .Where(invoice => invoice.Status == InvoiceStatus.Paid)
+            .Sum(invoice => invoice.AmountPaid);
+
+        _draftCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Draft);
+        _issuedCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Issued);
+        _paidCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Paid);
+        _overdueCount = invoices.Count(invoice => invoice.IsOverdue());
+        _customerCount = customers.Count;
+        _productCount = products.Count;
+        _recent = invoices
+            .OrderByDescending(invoice => invoice.UpdatedAt)
+            .Take(5)
+            .ToList();
+
+        _loaded = true;
+    }
+
+    private static decimal Total(Invoice invoice) => InvoiceCalculator.Calculate(invoice).GrandTotal;
+
+    private static string InvoiceHref(Invoice invoice) =>
+        invoice.Status == InvoiceStatus.Draft
+            ? $"invoices/{invoice.Id}/edit"
+            : $"invoices/{invoice.Id}/print";
+}

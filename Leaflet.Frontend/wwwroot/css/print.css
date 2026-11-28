@@ -1,0 +1,57 @@
+@page {
+    size: A4;
+    margin: 14mm;
+}
+
+@media print {
+    html,
+    body {
+        background: #fff !important;
+        background-image: none !important;
+        color: #111 !important;
+        font-size: 11pt;
+    }
+
+    .print-toolbar,
+    .topbar,
+    .sidebar,
+    #blazor-error-ui {
+        display: none !important;
+    }
+
+    .print-shell {
+        padding: 0 !important;
+        max-width: none !important;
+    }
+
+    .invoice-paper {
+        box-shadow: none !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+    }
+
+    .print-avoid-break {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .invoice-table thead {
+        display: table-header-group;
+    }
+
+    .invoice-table tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .draft-watermark {
+        display: block !important;
+    }
+
+    a {
+        color: #111 !important;
+        text-decoration: none !important;
+    }
+}

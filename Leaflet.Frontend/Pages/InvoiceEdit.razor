@@ -1,0 +1,513 @@
+@page "/invoices/new"
+@page "/invoices/{Id:guid}/edit"
+@inject IInvoiceService InvoiceService
+@inject ICustomerService CustomerService
+@inject IProductService ProductService
+@inject ISettingsService Settings
+@inject MoneyFormatter Money
+@inject DialogService Dialog
+@inject NavigationManager Navigation
+
+<PageTitle>@(_isNew ? "New invoice" : "Edit draft") · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Invoice builder"
+            Title="@(_isNew ? "A fresh invoice." : "Shape the draft.")"
+            Lede="Pick a customer, add lines from the catalog, and shape the totals. The invoice number is assigned at finalize.">
+    <Actions>
+        <a href="invoices" class="btn btn-ghost">Back to invoices</a>
+    </Actions>
+</PageHeader>
+
+@if (_loading)
+{
+    <p class="muted">Preparing the invoice…</p>
+}
+else if (_notFound)
+{
+    <div class="notice notice-error">That invoice could not be found.</div>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="notice notice-error">@_error</div>
+    }
+
+    <div class="editor-grid">
+        <div class="stack">
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Invoice details</h2>
+                    <span class="status-pill status-draft">Draft</span>
+                </div>
+                <div class="panel-body">
+                    <div class="form-grid">
+                        <div class="field full">
+                            <label class="form-label" for="customer">Customer</label>
+                            <select id="customer"
+                                    class="form-select"
+                                    @bind="_invoice.CustomerId"
+                                    @bind:after="SyncCustomer">
+                                <option value="@Guid.Empty">Choose a customer…</option>
+                                @foreach (var customer in _customers)
+                                {
+                                    <option value="@customer.Id">@customer.Name</option>
+                                }
+                            </select>
+                            <div class="form-text">Customers are managed in the directory.</div>
+                        </div>
+
+                        <div class="field">
+                            <label class="form-label" for="issue-date">Issue date</label>
+                            <InputDate id="issue-date" class="form-control" @bind-Value="_invoice.IssueDate" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="due-date">Due date</label>
+                            <InputDate id="due-date" class="form-control" @bind-Value="_invoice.DueDate" />
+                        </div>
+                        <div class="field full">
+                            <label class="form-label" for="terms">Payment terms</label>
+                            <input id="terms" class="form-control" @bind="_invoice.PaymentTerms" placeholder="Net 14" />
+                        </div>
+                    </div>
+
+                    @if (SelectedCustomer is { } selected)
+                    {
+                        <div class="bill-to-card">
+                            <div class="eyebrow" style="margin-bottom:.35rem;">Bill to</div>
+                            <strong>@selected.Name</strong>
+                            @if (!string.IsNullOrWhiteSpace(selected.Email))
+                            {
+                                <span class="muted">@selected.Email</span>
+                            }
+                            @if (!selected.BillingAddress.IsEmpty)
+                            {
+                                <span>@selected.BillingAddress.ToSingleLine()</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(selected.TaxId))
+                            {
+                                <span class="mono muted">@selected.TaxId</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>Line items</h2>
+                    <span class="toolbar-count" style="margin-left:0;">@_invoice.LineItems.Count line@(_invoice.LineItems.Count == 1 ? string.Empty : "s")</span>
+                </div>
+
+                @if (_invoice.LineItems.Count == 0)
+                {
+                    <EmptyState Mark="+" Title="No lines yet" Message="Add a catalog item or a custom line to begin building the invoice.">
+                        <button class="btn btn-accent btn-sm" @onclick="AddLine">Add first line</button>
+                    </EmptyState>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="line-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:22%;">Item</th>
+                                    <th>Description</th>
+                                    <th style="width:86px;">Qty</th>
+                                    <th style="width:116px;">Rate</th>
+                                    <th style="width:86px;">Tax %</th>
+                                    <th style="width:104px;" class="num">Total</th>
+                                    <th style="width:38px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in _invoice.LineItems)
+                                {
+                                    <tr @key="line.Id">
+                                        <td>
+                                            <select class="form-select"
+                                                    value="@line.ProductId"
+                                                    @onchange="args => OnProductChanged(line, args)">
+                                                <option value="">Custom line</option>
+                                                @foreach (var product in _products)
+                                                {
+                                                    <option value="@product.Id">@product.Name</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <input class="form-control"
+                                                   placeholder="What are you charging for?"
+                                                   @bind="line.Description" />
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control num-input"
+                                                   min="0"
+                                                   step="0.01"
+                                                   @bind="line.Quantity"
+                                                   @bind:after="Recalculate" />
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control num-input"
+                                                   min="0"
+                                                   step="0.01"
+                                                   @bind="line.UnitPrice"
+                                                   @bind:after="Recalculate" />
+                                        </td>
+                                        <td>
+                                            <input type="number"
+                                                   class="form-control num-input"
+                                                   min="0"
+                                                   max="100"
+                                                   step="0.01"
+                                                   @bind="line.TaxRate"
+                                                   @bind:after="Recalculate" />
+                                        </td>
+                                        <td class="line-total">@Money.Format(LineTotal(line.Id))</td>
+                                        <td>
+                                            <button class="remove-line"
+                                                    title="Remove line"
+                                                    @onclick="() => RemoveLine(line)">×</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="line-actions">
+                        <button class="btn btn-ghost btn-sm" @onclick="AddLine">+ Add line</button>
+                        <span class="muted" style="font-size:.78rem;">Tax is applied per line.</span>
+                    </div>
+                }
+            </section>
+
+            <section class="panel panel-pad">
+                <div class="eyebrow">Notes</div>
+                <div class="field">
+                    <label class="form-label" for="notes">Visible on the invoice</label>
+                    <textarea id="notes"
+                              class="form-control"
+                              rows="4"
+                              placeholder="A short note about the work, scope, or payment instructions."
+                              @bind="_invoice.Notes"></textarea>
+                </div>
+            </section>
+        </div>
+
+        <aside class="editor-side">
+            <section class="panel panel-pad">
+                <div class="eyebrow">Summary</div>
+
+                <div class="field">
+                    <label class="form-label" for="discount">Discount</label>
+                    <div class="input-group">
+                        <input id="discount"
+                               type="number"
+                               class="form-control num-input"
+                               min="0"
+                               max="100"
+                               step="0.01"
+                               @bind="_invoice.DiscountPercent"
+                               @bind:after="Recalculate" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+
+                <TotalsPanel Totals="_totals"
+                             ShowDiscountPercent="true"
+                             DiscountPercent="_invoice.DiscountPercent" />
+
+                <hr class="divider" />
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-accent" @onclick="FinalizeAsync" disabled="@_busy">
+                        Finalize &amp; issue
+                    </button>
+                    <button class="btn btn-ink" @onclick="SaveDraftAsync" disabled="@_busy">
+                        Save draft
+                    </button>
+                    <button class="btn btn-ghost" @onclick="PreviewAsync" disabled="@_busy">
+                        Preview draft
+                    </button>
+                </div>
+
+                <p class="summary-note">
+                    @( _isNew
+                        ? "This draft is unnumbered. Finalizing assigns the next invoice number."
+                        : "This draft remains unnumbered until you finalize it." )
+                </p>
+            </section>
+
+            <section class="panel panel-pad">
+                <div class="eyebrow">A small reminder</div>
+                <p class="muted" style="font-size:.84rem;line-height:1.6;margin:0;">
+                    Everything here is held in memory for this session. Refreshing the page resets the
+                    seeded studio data.
+                </p>
+            </section>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Invoice _invoice = new();
+    private InvoiceTotals _totals = null!;
+    private CompanySettings _settings = new();
+    private List<Customer> _customers = [];
+    private List<Product> _products = [];
+    private bool _isNew;
+    private bool _loading = true;
+    private bool _notFound;
+    private bool _busy;
+    private string? _error;
+
+    private Customer? SelectedCustomer =>
+        _customers.FirstOrDefault(customer => customer.Id == _invoice.CustomerId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = Settings.Current;
+        _customers = (await CustomerService.GetAllAsync()).ToList();
+        _products = (await ProductService.GetAllAsync())
+            .Where(product => product.IsActive)
+            .ToList();
+
+        if (Id is null)
+        {
+            _isNew = true;
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            _invoice = new Invoice
+            {
+                IssueDate = today,
+                DueDate = today.AddDays(Math.Max(_settings.PaymentTermsDays, 0)),
+                PaymentTerms = $"Net {_settings.PaymentTermsDays}"
+            };
+        }
+        else
+        {
+            _isNew = false;
+            var invoice = await InvoiceService.GetByIdAsync(Id.Value);
+
+            if (invoice is null)
+            {
+                _notFound = true;
+                _loading = false;
+                return;
+            }
+
+            if (invoice.Status != InvoiceStatus.Draft)
+            {
+                Navigation.NavigateTo($"invoices/{invoice.Id}/print");
+                return;
+            }
+
+            _invoice = invoice;
+        }
+
+        Recalculate();
+        _loading = false;
+    }
+
+    private void AddLine()
+    {
+        _invoice.LineItems.Add(new InvoiceLineItem
+        {
+            Quantity = 1,
+            Unit = "each",
+            TaxRate = _settings.DefaultTaxRate
+        });
+
+        Recalculate();
+    }
+
+    private void RemoveLine(InvoiceLineItem line)
+    {
+        _invoice.LineItems.Remove(line);
+        Recalculate();
+    }
+
+    private void OnProductChanged(InvoiceLineItem line, ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+
+        if (!Guid.TryParse(value, out var productId))
+        {
+            line.ProductId = null;
+            Recalculate();
+            return;
+        }
+
+        var product = _products.FirstOrDefault(item => item.Id == productId);
+        if (product is null)
+        {
+            Recalculate();
+            return;
+        }
+
+        line.ProductId = product.Id;
+        line.Description = product.Name;
+        line.Unit = product.Unit;
+        line.UnitPrice = product.UnitPrice;
+        line.TaxRate = product.TaxRate;
+
+        Recalculate();
+    }
+
+    private void SyncCustomer()
+    {
+        _invoice.CustomerName = SelectedCustomer?.Name ?? string.Empty;
+    }
+
+    private void Recalculate() => _totals = InvoiceCalculator.Calculate(_invoice);
+
+    private decimal LineTotal(Guid lineId) =>
+        _totals.Lines.FirstOrDefault(line => line.LineItemId == lineId)?.Total ?? 0m;
+
+    private async Task SaveDraftAsync()
+    {
+        if (await PersistAsync())
+        {
+            Navigation.NavigateTo("invoices");
+        }
+    }
+
+    private async Task PreviewAsync()
+    {
+        if (await PersistAsync())
+        {
+            Navigation.NavigateTo($"invoices/{_invoice.Id}/print");
+        }
+    }
+
+    private async Task FinalizeAsync()
+    {
+        _error = null;
+
+        var validation = Validate(forFinalize: true);
+        if (validation is not null)
+        {
+            _error = validation;
+            return;
+        }
+
+        if (!await Dialog.ConfirmAsync("Finalize this invoice? It will receive the next invoice number and can no longer be edited."))
+        {
+            return;
+        }
+
+        if (!await PersistAsync())
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var finalized = await InvoiceService.FinalizeAsync(_invoice.Id);
+            Navigation.NavigateTo($"invoices/{finalized.Id}/print");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _busy = false;
+        }
+    }
+
+    private async Task<bool> PersistAsync()
+    {
+        _error = null;
+
+        var validation = Validate(forFinalize: false);
+        if (validation is not null)
+        {
+            _error = validation;
+            return false;
+        }
+
+        _busy = true;
+        try
+        {
+            SyncCustomer();
+
+            if (_isNew)
+            {
+                _invoice = await InvoiceService.AddAsync(_invoice);
+                _isNew = false;
+            }
+            else
+            {
+                await InvoiceService.UpdateAsync(_invoice);
+            }
+
+            Recalculate();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string? Validate(bool forFinalize)
+    {
+        if (_invoice.CustomerId == Guid.Empty)
+        {
+            return "Choose a customer before saving the invoice.";
+        }
+
+        if (_invoice.DueDate < _invoice.IssueDate)
+        {
+            return "The due date cannot be before the issue date.";
+        }
+
+        if (_invoice.DiscountPercent is < 0m or > 100m)
+        {
+            return "Discount must be between 0 and 100.";
+        }
+
+        if (!forFinalize)
+        {
+            return null;
+        }
+
+        if (_invoice.LineItems.Count == 0)
+        {
+            return "Add at least one line item before finalizing.";
+        }
+
+        foreach (var line in _invoice.LineItems)
+        {
+            if (string.IsNullOrWhiteSpace(line.Description))
+            {
+                return "Every line item needs a description.";
+            }
+
+            if (line.Quantity <= 0m)
+            {
+                return "Every line item needs a quantity greater than zero.";
+            }
+
+            if (line.UnitPrice < 0m)
+            {
+                return "Unit price cannot be negative.";
+            }
+
+            if (line.TaxRate is < 0m or > 100m)
+            {
+                return "Tax rates must be between 0 and 100.";
+            }
+        }
+
+        return null;
+    }
+}
