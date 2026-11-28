@@ -1,5 +1,7 @@
-﻿@page "/"
-@inject IInvoiceService InvoiceService
+@page "/"
+@using Leaflet.Frontend.Contracts
+@inject HttpClient Http
+@inject JsonSerializerOptions JsonOptions
 @inject ICustomerService CustomerService
 @inject IProductService ProductService
 @inject MoneyFormatter Money
@@ -8,7 +10,7 @@
 
 <PageHeader Eyebrow="Studio overview"
             Title="The ledger, at a glance."
-            Lede="A live view of this in-memory session. Everything here resets when the page reloads.">
+            Lede="Live metrics from the backend. Invoice totals and statuses are computed server-side.">
     <Actions>
         <a href="invoices/new" class="btn btn-accent">New invoice</a>
         <a href="customers/new" class="btn btn-ghost">Add customer</a>
@@ -25,12 +27,12 @@ else
         <div class="stat-card">
             <div class="stat-label">Total invoiced</div>
             <div class="stat-value">@Money.Format(_totalInvoiced)</div>
-            <div class="stat-note">All issued and paid invoices</div>
+            <div class="stat-note">All invoices in the ledger</div>
         </div>
         <div class="stat-card gold">
             <div class="stat-label">Outstanding</div>
             <div class="stat-value">@Money.Format(_outstanding)</div>
-            <div class="stat-note">@_issuedCount open invoice@(_issuedCount == 1 ? string.Empty : "s")</div>
+            <div class="stat-note">@_unpaidCount open invoice@(_unpaidCount == 1 ? string.Empty : "s")</div>
         </div>
         <div class="stat-card sage">
             <div class="stat-label">Collected</div>
@@ -38,18 +40,18 @@ else
             <div class="stat-note">@_paidCount settled invoice@(_paidCount == 1 ? string.Empty : "s")</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">In progress</div>
-            <div class="stat-value">@_draftCount</div>
-            <div class="stat-note">Draft@(_draftCount == 1 ? string.Empty : "s") waiting to be finalized</div>
+            <div class="stat-label">Overdue</div>
+            <div class="stat-value">@_overdueCount</div>
+            <div class="stat-note">@_overdueCount invoice@(_overdueCount == 1 ? " is" : "s are") past due</div>
         </div>
     </div>
 
-    @if (_overdueCount > 0)
+    @if (_summary.OverdueCount > 0)
     {
         <div class="notice notice-info">
             <span class="mono">!</span>
             <span>
-                <strong>@_overdueCount invoice@(_overdueCount == 1 ? " is" : "s are") past due.</strong>
+                <strong>@_summary.OverdueCount invoice@(_summary.OverdueCount == 1 ? " is" : "s are") past due.</strong>
                 Open the invoice list to review and follow up.
             </span>
         </div>
@@ -86,7 +88,7 @@ else
                                 <tr>
                                     <td>
                                         <a class="cell-title mono" href="@InvoiceHref(invoice)">
-                                            @(invoice.Number ?? "Draft")
+                                            @invoice.InvoiceNumber
                                         </a>
                                     </td>
                                     <td>
@@ -94,8 +96,8 @@ else
                                         <span class="cell-sub">Due @invoice.DueDate.ToString("MMM d")</span>
                                     </td>
                                     <td class="mono hide-sm">@invoice.IssueDate.ToString("MMM d, yyyy")</td>
-                                    <td class="num">@Money.Format(Total(invoice))</td>
-                                    <td><StatusBadge Invoice="invoice" /></td>
+                                    <td class="num">@Money.Format(invoice.GrandTotal)</td>
+                                    <td><span class="status-pill @StatusClass(invoice.Status)">@StatusLabel(invoice.Status)</span></td>
                                 </tr>
                             }
                         </tbody>
@@ -109,22 +111,9 @@ else
                 <div class="eyebrow">Studio pulse</div>
                 <h2 style="font-size:1.45rem;margin-bottom:1rem;">Where things stand</h2>
                 <div class="totals-row">
-                    <span>Draft invoices</span>
-                    <span class="amount">@_draftCount</span>
+                    <span>Total invoices</span>
+                    <span class="amount">@_summary.TotalInvoices</span>
                 </div>
-                <div class="totals-row">
-                    <span>Issued and open</span>
-                    <span class="amount">@_issuedCount</span>
-                </div>
-                <div class="totals-row">
-                    <span>Past due</span>
-                    <span class="amount">@_overdueCount</span>
-                </div>
-                <div class="totals-row">
-                    <span>Paid</span>
-                    <span class="amount">@_paidCount</span>
-                </div>
-                <hr class="divider" />
                 <div class="totals-row">
                     <span>Customers</span>
                     <span class="amount">@_customerCount</span>
@@ -132,6 +121,19 @@ else
                 <div class="totals-row">
                     <span>Catalog items</span>
                     <span class="amount">@_productCount</span>
+                </div>
+                <hr class="divider" />
+                <div class="totals-row">
+                    <span>Paid</span>
+                    <span class="amount">@_summary.PaidCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Unpaid</span>
+                    <span class="amount">@_summary.UnpaidCount</span>
+                </div>
+                <div class="totals-row">
+                    <span>Overdue</span>
+                    <span class="amount">@_summary.OverdueCount</span>
                 </div>
             </section>
 
@@ -149,12 +151,12 @@ else
 
 @code {
     private bool _loaded;
-    private IReadOnlyList<Invoice> _recent = [];
+    private DashboardSummaryDto _summary = new(0, 0, 0, 0, 0, 0, new());
+    private List<InvoiceDto> _recent = [];
     private decimal _totalInvoiced;
     private decimal _outstanding;
     private decimal _collected;
-    private int _draftCount;
-    private int _issuedCount;
+    private int _unpaidCount;
     private int _paidCount;
     private int _overdueCount;
     private int _customerCount;
@@ -162,37 +164,43 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var invoices = await InvoiceService.GetAllAsync();
-        var customers = await CustomerService.GetAllAsync();
-        var products = await ProductService.GetAllAsync();
+        _summary = await Http.GetFromJsonAsync<DashboardSummaryDto>("api/dashboard/summary", JsonOptions)
+            ?? new DashboardSummaryDto(0, 0, 0, 0, 0, 0, new());
 
-        var active = invoices.Where(invoice => invoice.Status is InvoiceStatus.Issued or InvoiceStatus.Paid).ToList();
-        _totalInvoiced = active.Sum(Total);
-        _outstanding = invoices
-            .Where(invoice => invoice.Status == InvoiceStatus.Issued)
-            .Sum(invoice => InvoiceCalculator.Calculate(invoice).BalanceDue);
-        _collected = invoices
-            .Where(invoice => invoice.Status == InvoiceStatus.Paid)
-            .Sum(invoice => invoice.AmountPaid);
+        _recent = _summary.RecentInvoices;
 
-        _draftCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Draft);
-        _issuedCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Issued);
-        _paidCount = invoices.Count(invoice => invoice.Status == InvoiceStatus.Paid);
-        _overdueCount = invoices.Count(invoice => invoice.IsOverdue());
-        _customerCount = customers.Count;
-        _productCount = products.Count;
-        _recent = invoices
-            .OrderByDescending(invoice => invoice.UpdatedAt)
-            .Take(5)
-            .ToList();
+        _totalInvoiced = _summary.TotalRevenue + _summary.TotalReceivables;
+        _outstanding = _summary.TotalReceivables;
+        _collected = _summary.TotalRevenue;
+        _unpaidCount = _summary.UnpaidCount;
+        _paidCount = _summary.PaidCount;
+        _overdueCount = _summary.OverdueCount;
+
+        _customerCount = (await CustomerService.GetAllAsync()).Count;
+        _productCount = (await ProductService.GetAllAsync()).Count;
 
         _loaded = true;
     }
 
-    private static decimal Total(Invoice invoice) => InvoiceCalculator.Calculate(invoice).GrandTotal;
+    private static string StatusLabel(Contracts.InvoiceStatus status) => status switch
+    {
+        Contracts.InvoiceStatus.Unpaid => "Issued",
+        Contracts.InvoiceStatus.Cancelled => "Void",
+        _ => status.ToString()
+    };
 
-    private static string InvoiceHref(Invoice invoice) =>
-        invoice.Status == InvoiceStatus.Draft
-            ? $"invoices/{invoice.Id}/edit"
-            : $"invoices/{invoice.Id}/print";
+    private static string StatusClass(Contracts.InvoiceStatus status) => status switch
+    {
+        Contracts.InvoiceStatus.Draft => "status-draft",
+        Contracts.InvoiceStatus.Paid => "status-paid",
+        Contracts.InvoiceStatus.Overdue => "status-overdue",
+        Contracts.InvoiceStatus.Cancelled => "status-void",
+        _ => "status-issued"
+    };
+
+    private static string InvoiceHref(InvoiceDto invoice) =>
+        $"invoices/{invoice.Id}/print";
+
 }
+
+

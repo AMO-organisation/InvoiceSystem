@@ -31,6 +31,9 @@ public sealed class Invoice
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
+    // Backend (database) primary key. Used to call backend endpoints such as /api/invoices/{id}/pdf.
+    public int? BackendId { get; set; }
+
     public string? Number { get; set; }
 
     public Guid CustomerId { get; set; }
@@ -62,6 +65,7 @@ public sealed class Invoice
     public Invoice Clone() => new()
     {
         Id = Id,
+        BackendId = BackendId,
         Number = Number,
         CustomerId = CustomerId,
         CustomerName = CustomerName,

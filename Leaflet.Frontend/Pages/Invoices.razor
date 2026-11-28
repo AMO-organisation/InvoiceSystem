@@ -183,13 +183,6 @@
                 Label = "Finalize invoice",
                 Action = () => FinalizeAsync(invoice)
             });
-            items.Add(new ContextMenuItem
-            {
-                Label = "Delete draft",
-                Danger = true,
-                SeparatorBefore = true,
-                Action = () => DeleteAsync(invoice)
-            });
         }
         else
         {
@@ -312,29 +305,6 @@
         catch (Exception exception)
         {
             _error = exception.Message;
-        }
-    }
-
-    private async Task DeleteAsync(Invoice invoice)
-    {
-        ClearNotices();
-
-        if (!await Dialog.ConfirmAsync("Delete this draft? This cannot be undone."))
-        {
-            return;
-        }
-
-        try
-        {
-            await InvoiceService.DeleteAsync(invoice.Id);
-            _message = "Draft deleted.";
-            await LoadAsync();
-            StateHasChanged();
-        }
-        catch (Exception exception)
-        {
-            _error = exception.Message;
-            StateHasChanged();
         }
     }
 

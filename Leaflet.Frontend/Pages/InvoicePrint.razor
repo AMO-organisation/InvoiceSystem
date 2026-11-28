@@ -5,6 +5,7 @@
 @inject ISettingsService Settings
 @inject MoneyFormatter Money
 @inject IJSRuntime JS
+@inject HttpClient Http
 
 <PageTitle>@(_invoice?.Number ?? "Draft invoice") · Leaflet</PageTitle>
 
@@ -188,6 +189,11 @@ else
             {
                 <p>@_settings.FooterText</p>
             }
+            @if (!string.IsNullOrWhiteSpace(_settings.PaymentInstructions))
+            {
+                <div class="meta-label">Payment instructions</div>
+                <p>@_settings.PaymentInstructions</p>
+            }
             <span class="mono">@_settings.CompanyName · @_settings.CurrencyCode</span>
         </footer>
     </article>
@@ -238,6 +244,12 @@ else
 
     private async Task PrintAsync()
     {
-        await JS.InvokeVoidAsync("leaflet.print");
+        if (_invoice is null || _invoice.BackendId is not int backendId)
+        {
+            return;
+        }
+
+        var pdfUrl = new Uri(Http.BaseAddress!, $"api/invoices/{backendId}/pdf").ToString();
+        await JS.InvokeVoidAsync("open", pdfUrl, "_blank");
     }
 }

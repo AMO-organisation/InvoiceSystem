@@ -5,5 +5,6 @@ namespace Leaflet.Frontend.Services.Abstractions;
 public interface ISettingsService
 {
     CompanySettings Current { get; }
-    void Update(CompanySettings settings);
+    Task LoadAsync();
+    Task UpdateAsync(CompanySettings settings);
 }

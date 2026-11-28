@@ -2,212 +2,139 @@
 @inject ISettingsService SettingsService
 @inject MoneyFormatter Money
 
-<PageTitle>Studio settings · Leaflet</PageTitle>
+<PageTitle>Business profile · Leaflet</PageTitle>
 
 <PageHeader Eyebrow="Studio"
-            Title="Settings"
-            Lede="The studio identity and defaults that appear on every invoice. Changes apply to new invoices and future printouts.">
+        Title="Business profile"
+        Lede="The company identity and defaults that appear on every invoice. Stored in the backend and used for invoice branding and the default tax rate.">
 </PageHeader>
 
-@if (_message is not null)
+@if (!_loaded)
 {
-    <div class="notice notice-success">@_message</div>
+    <p class="muted">Loading business profile…</p>
 }
-
-@if (_error is not null)
+else
 {
-    <div class="notice notice-error">@_error</div>
-}
+    @if (_message is not null)
+    {
+        <div class="notice notice-success">@_message</div>
+    }
 
-<div class="split-grid">
-    <div class="stack">
-        <section class="panel">
-            <div class="panel-head">
-                <h2>Studio identity</h2>
-            </div>
-            <div class="panel-body">
+    @if (_error is not null)
+    {
+        <div class="notice notice-error">@_error</div>
+    }
+
+    <div class="panel">
+        <div class="panel-body">
+            <EditForm Model="_settings" OnValidSubmit="SaveAsync">
+                <DataAnnotationsValidator />
                 <div class="form-grid">
                     <div class="field full">
-                        <label class="form-label" for="company">Studio name</label>
-                        <input id="company" class="form-control" @bind="_settings.CompanyName" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label" for="email">Email</label>
-                        <input id="email" type="email" class="form-control" @bind="_settings.Email" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label" for="phone">Phone</label>
-                        <input id="phone" class="form-control" @bind="_settings.Phone" />
+                        <label class="form-label" for="company">Company name</label>
+                        <InputText id="company" class="form-control" @bind-Value="_settings.CompanyName" />
+                        <ValidationMessage For="() => _settings.CompanyName" />
                     </div>
                     <div class="field full">
-                        <label class="form-label" for="logo">Logo URL</label>
-                        <input id="logo" class="form-control" @bind="_settings.LogoUrl" placeholder="https://… or a data URL" />
-                        <div class="form-text">Optional. A simple monogram is used when this is empty.</div>
-                    </div>
-                    <div class="field full">
-                        <label class="form-label" for="street">Street</label>
-                        <input id="street" class="form-control" @bind="_settings.Address.Street" />
+                        <label class="form-label" for="address">Address</label>
+                        <InputText id="address" class="form-control" @bind-Value="_settings.Address.Street" />
+                        <ValidationMessage For="() => _settings.Address.Street" />
                     </div>
                     <div class="field">
                         <label class="form-label" for="city">City</label>
-                        <input id="city" class="form-control" @bind="_settings.Address.City" />
+                        <InputText id="city" class="form-control" @bind-Value="_settings.Address.City" />
                     </div>
                     <div class="field">
-                        <label class="form-label" for="state">State / region</label>
-                        <input id="state" class="form-control" @bind="_settings.Address.State" />
+                        <label class="form-label" for="email">Email</label>
+                        <InputText id="email" type="email" class="form-control" @bind-Value="_settings.Email" />
+                        <ValidationMessage For="() => _settings.Email" />
                     </div>
                     <div class="field">
-                        <label class="form-label" for="postal">Postal code</label>
-                        <input id="postal" class="form-control" @bind="_settings.Address.PostalCode" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label" for="country">Country</label>
-                        <input id="country" class="form-control" @bind="_settings.Address.Country" />
-                    </div>
-                    <div class="field full">
-                        <label class="form-label" for="taxid">Tax ID</label>
-                        <input id="taxid" class="form-control" @bind="_settings.TaxId" />
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="panel">
-            <div class="panel-head">
-                <h2>Invoice defaults</h2>
-            </div>
-            <div class="panel-body">
-                <div class="form-grid">
-                    <div class="field">
-                        <label class="form-label" for="currency-code">Currency code</label>
-                        <input id="currency-code" class="form-control" @bind="_settings.CurrencyCode" placeholder="NGN" />
+                        <label class="form-label" for="phone">Phone</label>
+                        <InputText id="phone" class="form-control" @bind-Value="_settings.Phone" />
                     </div>
                     <div class="field">
                         <label class="form-label" for="currency-symbol">Currency symbol</label>
-                        <input id="currency-symbol" class="form-control" @bind="_settings.CurrencySymbol" placeholder="₦" />
+                        <InputText id="currency-symbol" class="form-control" @bind-Value="_settings.CurrencySymbol" placeholder="₦" />
+                        <ValidationMessage For="() => _settings.CurrencySymbol" />
                     </div>
                     <div class="field">
                         <label class="form-label" for="tax">Default tax rate (%)</label>
-                        <input id="tax" type="number" min="0" max="100" step="0.01" class="form-control" @bind="_settings.DefaultTaxRate" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label" for="terms">Payment terms (days)</label>
-                        <input id="terms" type="number" min="0" max="365" class="form-control" @bind="_settings.PaymentTermsDays" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label" for="prefix">Invoice prefix</label>
-                        <input id="prefix" class="form-control" @bind="_settings.InvoicePrefix" placeholder="INV" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Next number format</label>
-                        <div class="form-control mono" style="background:var(--paper);color:var(--muted);">
-                            @PrefixPreview-@DateTime.Today.Year-0001
-                        </div>
+                        <InputNumber id="tax" class="form-control" @bind-Value="_settings.DefaultTaxRate" step="0.01" min="0" max="100" />
+                        <ValidationMessage For="() => _settings.DefaultTaxRate" />
                     </div>
                     <div class="field full">
-                        <label class="form-label" for="footer">Invoice footer</label>
-                        <textarea id="footer" class="form-control" rows="3" @bind="_settings.FooterText"></textarea>
+                        <label class="form-label" for="payment-instructions">Payment instructions</label>
+                        <InputTextArea id="payment-instructions" class="form-control" rows="3" @bind-Value="_settings.PaymentInstructions" placeholder="Bank transfer details…" />
                     </div>
                 </div>
-            </div>
-            <div class="panel-head" style="justify-content:flex-end;border-bottom:0;border-top:1px solid var(--line);">
-                <button class="btn btn-accent" @onclick="SaveAsync">Save settings</button>
-            </div>
-        </section>
+                <div class="panel-head" style="justify-content:flex-end;border-bottom:0;border-top:1px solid var(--line);">
+                    <button class="btn btn-accent" type="submit" disabled="@_busy">Save profile</button>
+                </div>
+            </EditForm>
+        </div>
     </div>
-
-    <aside class="editor-side">
-        <section class="panel panel-pad">
-            <div class="eyebrow">On paper</div>
-            <div class="settings-preview">
-                @if (!string.IsNullOrWhiteSpace(_settings.LogoUrl))
-                {
-                    <img src="@_settings.LogoUrl" alt="" class="settings-logo" />
-                }
-                else
-                {
-                    <span class="settings-mark">L</span>
-                }
-                <div class="settings-company">@(string.IsNullOrWhiteSpace(_settings.CompanyName) ? "Your studio" : _settings.CompanyName)</div>
-                <div class="muted" style="font-size:.78rem;">
-                    @if (!_settings.Address.IsEmpty)
-                    {
-                        <div>@_settings.Address.ToSingleLine()</div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_settings.Email))
-                    {
-                        <div>@_settings.Email</div>
-                    }
-                </div>
-                <div class="settings-rule"></div>
-                <div class="mono" style="font-size:.72rem;color:var(--muted);">INVOICE</div>
-                <div class="settings-number">@PrefixPreview-@DateTime.Today.Year-0001</div>
-                <div class="muted" style="font-size:.76rem;">Numbers are assigned when an invoice is finalized.</div>
-                <div class="settings-rule"></div>
-                <div class="settings-row">
-                    <span class="muted">Example total</span>
-                    <span class="mono">@PreviewMoney(1250m)</span>
-                </div>
-                <div class="settings-row">
-                    <span class="muted">Default tax</span>
-                    <span class="mono">@_settings.DefaultTaxRate.ToString("0.##")%</span>
-                </div>
-                <div class="settings-row">
-                    <span class="muted">Terms</span>
-                    <span class="mono">Net @_settings.PaymentTermsDays</span>
-                </div>
-            </div>
-        </section>
-    </aside>
-</div>
+}
 
 @code {
     private CompanySettings _settings = new();
     private string? _message;
     private string? _error;
+    private bool _loaded;
+    private bool _busy;
 
-    private string PrefixPreview =>
-        string.IsNullOrWhiteSpace(_settings.InvoicePrefix) ? "INV" : _settings.InvoicePrefix.Trim();
-
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        await SettingsService.LoadAsync();
         _settings = SettingsService.Current;
+        _loaded = true;
     }
 
-    private string PreviewMoney(decimal amount) =>
-        $"{(_settings.CurrencySymbol is null ? string.Empty : _settings.CurrencySymbol)}{amount.ToString("N2", System.Globalization.CultureInfo.InvariantCulture)}";
-
-    private void SaveAsync()
+    private async Task SaveAsync()
     {
         _message = null;
         _error = null;
 
         if (string.IsNullOrWhiteSpace(_settings.CompanyName))
         {
-            _error = "The studio name cannot be empty.";
+            _error = "The company name cannot be empty.";
             return;
         }
-
-        if (string.IsNullOrWhiteSpace(_settings.CurrencyCode) || string.IsNullOrWhiteSpace(_settings.CurrencySymbol))
+        if (string.IsNullOrWhiteSpace(_settings.Address.Street) || string.IsNullOrWhiteSpace(_settings.Address.City))
         {
-            _error = "Currency code and symbol are required.";
+            _error = "Address and city are required.";
             return;
         }
-
+        if (string.IsNullOrWhiteSpace(_settings.Email) || string.IsNullOrWhiteSpace(_settings.Phone))
+        {
+            _error = "Email and phone are required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_settings.CurrencySymbol))
+        {
+            _error = "Currency symbol is required.";
+            return;
+        }
         if (_settings.DefaultTaxRate is < 0m or > 100m)
         {
             _error = "Default tax rate must be between 0 and 100.";
             return;
         }
 
-        if (_settings.PaymentTermsDays is < 0 or > 365)
+        _busy = true;
+        try
         {
-            _error = "Payment terms must be between 0 and 365 days.";
-            return;
+            await SettingsService.UpdateAsync(_settings);
+            _settings = SettingsService.Current;
+            _message = "Business profile saved.";
         }
-
-        SettingsService.Update(_settings);
-        _settings = SettingsService.Current;
-        _message = "Settings saved for this session.";
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 }

@@ -242,10 +242,9 @@ else
             </section>
 
             <section class="panel panel-pad">
-                <div class="eyebrow">A small reminder</div>
+                <div class="eyebrow">Saved to the backend</div>
                 <p class="muted" style="font-size:.84rem;line-height:1.6;margin:0;">
-                    Everything here is held in memory for this session. Refreshing the page resets the
-                    seeded studio data.
+                    Customers, products, invoices and the company profile are stored in the backend API.
                 </p>
             </section>
         </aside>
@@ -300,7 +299,7 @@ else
                 return;
             }
 
-            if (invoice.Status != InvoiceStatus.Draft)
+            if (invoice.Status is not InvoiceStatus.Draft and not InvoiceStatus.Issued)
             {
                 Navigation.NavigateTo($"invoices/{invoice.Id}/print");
                 return;
@@ -405,17 +404,7 @@ else
             return;
         }
 
-        _busy = true;
-        try
-        {
-            var finalized = await InvoiceService.FinalizeAsync(_invoice.Id);
-            Navigation.NavigateTo($"invoices/{finalized.Id}/print");
-        }
-        catch (Exception exception)
-        {
-            _error = exception.Message;
-            _busy = false;
-        }
+        Navigation.NavigateTo($"invoices/{_invoice.Id}/print");
     }
 
     private async Task<bool> PersistAsync()
