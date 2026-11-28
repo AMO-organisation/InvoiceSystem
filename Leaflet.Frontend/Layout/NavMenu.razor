@@ -1,0 +1,88 @@
+﻿<div class="brand-row">
+    <a class="brand" href="">
+        <span class="brand-mark">L</span>
+        <span class="brand-copy">
+            <span class="brand-name">Leaflet</span>
+            <span class="brand-sub">Invoice studio</span>
+        </span>
+    </a>
+    <button class="nav-toggle" title="Toggle navigation" @onclick="ToggleNavMenu">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+</div>
+
+<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+    <div class="nav-label">Workspace</div>
+    <nav class="nav flex-column">
+        <div class="nav-item">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                    <path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" />
+                </svg>
+                <span>Overview</span>
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="customers">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="8" r="3.1" />
+                    <path d="M3.6 19.2c.5-3.2 2.6-5 5.4-5s4.9 1.8 5.4 5" />
+                    <circle cx="17.2" cy="9" r="2.4" />
+                    <path d="M15.6 14.7c2.5-.2 4.3 1.2 4.9 3.7" />
+                </svg>
+                <span>Customers</span>
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="products">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9L12 3Z" />
+                    <path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9" />
+                </svg>
+                <span>Catalog</span>
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="invoices">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 3h9l3 3v15l-3-2-3 2-3-2-3 2V3Z" />
+                    <path d="M9 8h6M9 12h6M9 16h4" />
+                </svg>
+                <span>Invoices</span>
+            </NavLink>
+        </div>
+    </nav>
+
+    <div class="nav-label nav-label-spaced">Studio</div>
+    <nav class="nav flex-column">
+        <div class="nav-item">
+            <NavLink class="nav-link" href="settings">
+                <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 6h16M4 12h16M4 18h16" />
+                    <circle cx="9" cy="6" r="2" fill="#16211a" />
+                    <circle cx="15" cy="12" r="2" fill="#16211a" />
+                    <circle cx="8" cy="18" r="2" fill="#16211a" />
+                </svg>
+                <span>Settings</span>
+            </NavLink>
+        </div>
+    </nav>
+
+    <div class="nav-footer">
+        <div class="nav-footer-title">Local session</div>
+        <p>Everything lives in memory for this demo. A refresh starts a clean slate.</p>
+    </div>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}

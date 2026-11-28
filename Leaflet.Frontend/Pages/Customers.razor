@@ -1,0 +1,192 @@
+@page "/customers"
+@inject ICustomerService CustomerService
+@inject IInvoiceService InvoiceService
+@inject DialogService Dialog
+@inject NavigationManager Navigation
+
+<PageTitle>Customers · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Directory"
+            Title="Customers"
+            Lede="The people and studios you invoice. Billing details are copied onto an invoice when it is finalized.">
+</PageHeader>
+
+@if (_error is not null)
+{
+    <div class="notice notice-error">@_error</div>
+}
+
+<div class="panel">
+    <div class="toolbar">
+        <input class="form-control search"
+               placeholder="Search by name, email, city…"
+               @bind="_search"
+               @bind:event="oninput" />
+        <span class="toolbar-count">@Filtered.Count customer@(Filtered.Count == 1 ? string.Empty : "s")</span>
+    </div>
+
+    @if (!_loaded)
+    {
+        <div class="panel-body muted">Loading customers…</div>
+    }
+    else if (_customers.Count == 0)
+    {
+        <EmptyState Mark="+" Title="No customers yet" Message="Add your first customer to start building invoices.">
+            <a href="customers/new" class="btn btn-accent btn-sm">Add customer</a>
+        </EmptyState>
+    }
+    else if (Filtered.Count == 0)
+    {
+        <EmptyState Mark="?" Title="No matches" Message="Try a different name, email, or city." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="ledger">
+                <thead>
+                    <tr>
+                        <th>Customer</th>
+                        <th class="hide-sm">Contact</th>
+                        <th>Location</th>
+                        <th class="num">Invoices</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var customer in Filtered)
+                    {
+                        <tr @oncontextmenu="e => OpenMenu(e, customer)" @oncontextmenu:preventDefault="true">
+                            <td>
+                                <div class="row-title">
+                                    <a class="cell-title" href="customers/@customer.Id/edit">@customer.Name</a>
+                                    <button type="button"
+                                            class="row-menu-btn"
+                                            title="Row actions"
+                                            aria-label="Row actions"
+                                            @onclick="e => OpenMenu(e, customer)"
+                                            @onclick:stopPropagation="true">⋯</button>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(customer.TaxId))
+                                {
+                                    <span class="cell-sub">@customer.TaxId</span>
+                                }
+                            </td>
+                            <td class="hide-sm">
+                                @if (!string.IsNullOrWhiteSpace(customer.Email))
+                                {
+                                    <div>@customer.Email</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(customer.Phone))
+                                {
+                                    <span class="cell-sub">@customer.Phone</span>
+                                }
+                            </td>
+                            <td>
+                                @(string.IsNullOrWhiteSpace(customer.BillingAddress.City)
+                                    ? "—"
+                                    : customer.BillingAddress.City)
+                                @if (!string.IsNullOrWhiteSpace(customer.BillingAddress.Country))
+                                {
+                                    <span class="cell-sub">@customer.BillingAddress.Country</span>
+                                }
+                            </td>
+                            <td class="num">@InvoiceCount(customer.Id)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<RowContextMenu @ref="_menu" />
+
+@code {
+    private bool _loaded;
+    private string _search = string.Empty;
+    private string? _error;
+    private List<Customer> _customers = [];
+    private readonly Dictionary<Guid, int> _invoiceCounts = new();
+    private RowContextMenu _menu = default!;
+
+    private List<Customer> Filtered
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_search))
+            {
+                return _customers;
+            }
+
+            var term = _search.Trim();
+            return _customers.Where(customer =>
+                    customer.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (customer.Email?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    customer.BillingAddress.City.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    customer.BillingAddress.Country.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _customers = (await CustomerService.GetAllAsync()).ToList();
+        _invoiceCounts.Clear();
+
+        foreach (var customer in _customers)
+        {
+            _invoiceCounts[customer.Id] = await InvoiceService.CountForCustomerAsync(customer.Id);
+        }
+
+        _loaded = true;
+    }
+
+    private int InvoiceCount(Guid customerId) =>
+        _invoiceCounts.TryGetValue(customerId, out var count) ? count : 0;
+
+    private void OpenMenu(MouseEventArgs args, Customer customer)
+    {
+        _menu.Show(args.ClientX, args.ClientY,
+        [
+            new ContextMenuItem
+            {
+                Label = "Edit customer",
+                Action = () =>
+                {
+                    Navigation.NavigateTo($"customers/{customer.Id}/edit");
+                    return Task.CompletedTask;
+                }
+            },
+            new ContextMenuItem
+            {
+                Label = "Delete customer",
+                Danger = true,
+                SeparatorBefore = true,
+                Action = () => DeleteAsync(customer)
+            }
+        ]);
+    }
+
+    private async Task DeleteAsync(Customer customer)
+    {
+        _error = null;
+        var invoiceCount = InvoiceCount(customer.Id);
+
+        if (invoiceCount > 0)
+        {
+            _error = $"{customer.Name} has {invoiceCount} invoice{(invoiceCount == 1 ? string.Empty : "s")} and cannot be deleted. Void or remove those invoices first.";
+            StateHasChanged();
+            return;
+        }
+
+        if (!await Dialog.ConfirmAsync($"Delete {customer.Name}? This cannot be undone."))
+        {
+            return;
+        }
+
+        await CustomerService.DeleteAsync(customer.Id);
+        await LoadAsync();
+        StateHasChanged();
+    }
+}

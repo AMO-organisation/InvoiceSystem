@@ -1,0 +1,153 @@
+@page "/customers/new"
+@page "/customers/{Id:guid}/edit"
+@inject ICustomerService CustomerService
+@inject NavigationManager Navigation
+
+<PageTitle>@(_isNew ? "New customer" : "Edit customer") · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Directory"
+            Title="@(_isNew ? "Add a customer" : "Edit customer")"
+            Lede="@(_isNew ? "Keep billing details tidy now so every future invoice is ready to send." : "Update the details that will be used on new invoices.")">
+    <Actions>
+        <a href="customers" class="btn btn-ghost">Back to customers</a>
+    </Actions>
+</PageHeader>
+
+@if (_notFound)
+{
+    <div class="notice notice-error">That customer could not be found.</div>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="notice notice-error">@_error</div>
+    }
+
+    <EditForm Model="_customer" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+
+        <div class="panel">
+            <div class="panel-body">
+                <div class="eyebrow">Identity</div>
+                <h2 style="font-size:1.45rem;margin-bottom:1.15rem;">Who are you invoicing?</h2>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <label class="form-label" for="name">Customer name</label>
+                        <InputText id="name" class="form-control" @bind-Value="_customer.Name" placeholder="Acme Coffee Roasters" />
+                        <ValidationMessage For="() => _customer.Name" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="email">Email</label>
+                        <InputText id="email" type="email" class="form-control" @bind-Value="_customer.Email" placeholder="accounts@example.com" />
+                        <ValidationMessage For="() => _customer.Email" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="phone">Phone</label>
+                        <InputText id="phone" class="form-control" @bind-Value="_customer.Phone" placeholder="+234 (503) 555-0100" />
+                    </div>
+                    <div class="field full">
+                        <label class="form-label" for="taxid">Tax ID</label>
+                        <InputText id="taxid" class="form-control" @bind-Value="_customer.TaxId" placeholder="Optional" />
+                    </div>
+                </div>
+            </div>
+
+            <hr class="divider" style="margin:0" />
+
+            <div class="panel-body">
+                <div class="eyebrow">Billing address</div>
+                <h2 style="font-size:1.45rem;margin-bottom:1.15rem;">Where should the invoice go?</h2>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <label class="form-label" for="street">Street</label>
+                        <InputText id="street" class="form-control" @bind-Value="_customer.BillingAddress.Street" placeholder="88 Alder Street" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="city">City</label>
+                        <InputText id="city" class="form-control" @bind-Value="_customer.BillingAddress.City" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="state">State / region</label>
+                        <InputText id="state" class="form-control" @bind-Value="_customer.BillingAddress.State" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="postal">Postal code</label>
+                        <InputText id="postal" class="form-control" @bind-Value="_customer.BillingAddress.PostalCode" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="country">Country</label>
+                        <InputText id="country" class="form-control" @bind-Value="_customer.BillingAddress.Country" />
+                    </div>
+                </div>
+            </div>
+
+            <hr class="divider" style="margin:0" />
+
+            <div class="panel-body">
+                <div class="field">
+                    <label class="form-label" for="notes">Internal notes</label>
+                    <InputTextArea id="notes" class="form-control" @bind-Value="_customer.Notes" placeholder="Payment preferences, contact context, anything useful." />
+                </div>
+            </div>
+
+            <div class="panel-head" style="justify-content:flex-end;border-bottom:0;border-top:1px solid var(--line);">
+                <a href="customers" class="btn btn-ghost">Cancel</a>
+                <button type="submit" class="btn btn-accent">@(_isNew ? "Save customer" : "Update customer")</button>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Customer _customer = new();
+    private bool _isNew = true;
+    private bool _notFound;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Id is null)
+        {
+            _isNew = true;
+            return;
+        }
+
+        _isNew = false;
+        var customer = await CustomerService.GetByIdAsync(Id.Value);
+        if (customer is null)
+        {
+            _notFound = true;
+            return;
+        }
+
+        _customer = customer;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+
+        try
+        {
+            if (_isNew)
+            {
+                await CustomerService.AddAsync(_customer);
+            }
+            else
+            {
+                await CustomerService.UpdateAsync(_customer);
+            }
+
+            Navigation.NavigateTo("customers");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+}

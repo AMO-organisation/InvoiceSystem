@@ -1,0 +1,347 @@
+@page "/invoices"
+@inject IInvoiceService InvoiceService
+@inject MoneyFormatter Money
+@inject DialogService Dialog
+@inject NavigationManager Navigation
+
+<PageTitle>Invoices · Leaflet</PageTitle>
+
+<PageHeader Eyebrow="Ledger"
+            Title="Invoices"
+            Lede="Drafts stay unnumbered until finalize. Finalizing assigns the next invoice number and freezes the customer snapshot.">
+</PageHeader>
+
+@if (_error is not null)
+{
+    <div class="notice notice-error">@_error</div>
+}
+
+@if (_message is not null)
+{
+    <div class="notice notice-success">@_message</div>
+}
+
+<div class="panel">
+    <div class="toolbar">
+        <input class="form-control search"
+               placeholder="Search by number or customer…"
+               @bind="_search"
+               @bind:event="oninput" />
+        <select class="form-select" style="flex:0 0 150px;" @bind="_filter">
+            <option value="all">All statuses</option>
+            <option value="draft">Draft</option>
+            <option value="issued">Issued</option>
+            <option value="overdue">Overdue</option>
+            <option value="paid">Paid</option>
+            <option value="void">Void</option>
+        </select>
+        <span class="toolbar-count">@Filtered.Count invoice@(Filtered.Count == 1 ? string.Empty : "s")</span>
+    </div>
+
+    @if (!_loaded)
+    {
+        <div class="panel-body muted">Reading invoices…</div>
+    }
+    else if (_invoices.Count == 0)
+    {
+        <EmptyState Mark="+" Title="No invoices yet" Message="Start a draft, add line items, then finalize to assign an invoice number.">
+            <a href="invoices/new" class="btn btn-accent btn-sm">New invoice</a>
+        </EmptyState>
+    }
+    else if (Filtered.Count == 0)
+    {
+        <EmptyState Mark="?" Title="No matches" Message="Try a different search term or status filter." />
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="ledger mobile-cards">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Customer</th>
+                        <th class="hide-sm">Issued</th>
+                        <th class="hide-sm">Due</th>
+                        <th class="num">Total</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in Filtered)
+                    {
+                        <tr @oncontextmenu="e => OpenMenu(e, invoice)" @oncontextmenu:preventDefault="true">
+                            <td data-label="Invoice">
+                                <div class="row-title">
+                                    <a class="cell-title mono" href="@Href(invoice)">
+                                        @(invoice.Number ?? "Draft")
+                                    </a>
+                                    <button type="button"
+                                            class="row-menu-btn"
+                                            title="Row actions"
+                                            aria-label="Row actions"
+                                            @onclick="e => OpenMenu(e, invoice)"
+                                            @onclick:stopPropagation="true">⋯</button>
+                                </div>
+                                @if (invoice.Number is null)
+                                {
+                                    <span class="cell-sub">Unnumbered</span>
+                                }
+                            </td>
+                            <td data-label="Customer">@invoice.CustomerName</td>
+                            <td class="mono hide-sm" data-label="Issued">@invoice.IssueDate.ToString("MMM d, yyyy")</td>
+                            <td class="mono hide-sm" data-label="Due">@invoice.DueDate.ToString("MMM d, yyyy")</td>
+                            <td class="num" data-label="Total">@Money.Format(Total(invoice))</td>
+                            <td data-label="Status"><StatusBadge Invoice="invoice" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<RowContextMenu @ref="_menu" />
+
+@code {
+    private bool _loaded;
+    private string _search = string.Empty;
+    private string _filter = "all";
+    private string? _error;
+    private string? _message;
+    private List<Invoice> _invoices = [];
+    private RowContextMenu _menu = default!;
+
+    private List<Invoice> Filtered
+    {
+        get
+        {
+            IEnumerable<Invoice> query = _invoices;
+
+            query = _filter switch
+            {
+                "draft" => query.Where(invoice => invoice.Status == InvoiceStatus.Draft),
+                "issued" => query.Where(invoice => invoice.Status == InvoiceStatus.Issued && !invoice.IsOverdue()),
+                "overdue" => query.Where(invoice => invoice.IsOverdue()),
+                "paid" => query.Where(invoice => invoice.Status == InvoiceStatus.Paid),
+                "void" => query.Where(invoice => invoice.Status == InvoiceStatus.Void),
+                _ => query
+            };
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var term = _search.Trim();
+                query = query.Where(invoice =>
+                    (invoice.Number?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    invoice.CustomerName.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.ToList();
+        }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _invoices = (await InvoiceService.GetAllAsync()).ToList();
+        _loaded = true;
+    }
+
+    private static decimal Total(Invoice invoice) => InvoiceCalculator.Calculate(invoice).GrandTotal;
+
+    private static string Href(Invoice invoice) =>
+        invoice.Status == InvoiceStatus.Draft
+            ? $"invoices/{invoice.Id}/edit"
+            : $"invoices/{invoice.Id}/print";
+
+    private void OpenMenu(MouseEventArgs args, Invoice invoice)
+    {
+        var items = new List<ContextMenuItem>();
+
+        if (invoice.Status == InvoiceStatus.Draft)
+        {
+            items.Add(new ContextMenuItem
+            {
+                Label = "Edit invoice",
+                Action = () =>
+                {
+                    Navigation.NavigateTo($"invoices/{invoice.Id}/edit");
+                    return Task.CompletedTask;
+                }
+            });
+            items.Add(new ContextMenuItem
+            {
+                Label = "Print preview",
+                Action = () =>
+                {
+                    Navigation.NavigateTo($"invoices/{invoice.Id}/print");
+                    return Task.CompletedTask;
+                }
+            });
+            items.Add(new ContextMenuItem
+            {
+                Label = "Finalize invoice",
+                Action = () => FinalizeAsync(invoice)
+            });
+            items.Add(new ContextMenuItem
+            {
+                Label = "Delete draft",
+                Danger = true,
+                SeparatorBefore = true,
+                Action = () => DeleteAsync(invoice)
+            });
+        }
+        else
+        {
+            items.Add(new ContextMenuItem
+            {
+                Label = "Print invoice",
+                Action = () =>
+                {
+                    Navigation.NavigateTo($"invoices/{invoice.Id}/print");
+                    return Task.CompletedTask;
+                }
+            });
+
+            if (invoice.Status == InvoiceStatus.Issued)
+            {
+                items.Add(new ContextMenuItem
+                {
+                    Label = "Mark as paid",
+                    Action = () => MarkPaidAsync(invoice)
+                });
+                items.Add(new ContextMenuItem
+                {
+                    Label = "Void invoice",
+                    Danger = true,
+                    SeparatorBefore = true,
+                    Action = () => VoidAsync(invoice)
+                });
+            }
+            else
+            {
+                items.Add(new ContextMenuItem
+                {
+                    Label = "Duplicate invoice",
+                    Action = () => DuplicateAsync(invoice)
+                });
+            }
+        }
+
+        _menu.Show(args.ClientX, args.ClientY, items);
+    }
+
+    private async Task FinalizeAsync(Invoice invoice)
+    {
+        ClearNotices();
+
+        if (!await Dialog.ConfirmAsync("Finalize this invoice? It will receive the next invoice number and can no longer be edited."))
+        {
+            return;
+        }
+
+        try
+        {
+            var finalized = await InvoiceService.FinalizeAsync(invoice.Id);
+            _message = $"Invoice {finalized.Number} issued.";
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            StateHasChanged();
+        }
+    }
+
+    private async Task MarkPaidAsync(Invoice invoice)
+    {
+        ClearNotices();
+
+        if (!await Dialog.ConfirmAsync($"Mark {invoice.Number} as paid in full?"))
+        {
+            return;
+        }
+
+        try
+        {
+            await InvoiceService.MarkPaidAsync(invoice.Id);
+            _message = $"{invoice.Number} marked as paid.";
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            StateHasChanged();
+        }
+    }
+
+    private async Task VoidAsync(Invoice invoice)
+    {
+        ClearNotices();
+
+        if (!await Dialog.ConfirmAsync($"Void {invoice.Number}? It will remain in the ledger but no longer count as outstanding."))
+        {
+            return;
+        }
+
+        try
+        {
+            await InvoiceService.VoidAsync(invoice.Id);
+            _message = $"{invoice.Number} voided.";
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DuplicateAsync(Invoice invoice)
+    {
+        ClearNotices();
+
+        try
+        {
+            var copy = await InvoiceService.DuplicateAsync(invoice.Id);
+            Navigation.NavigateTo($"invoices/{copy.Id}/edit");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task DeleteAsync(Invoice invoice)
+    {
+        ClearNotices();
+
+        if (!await Dialog.ConfirmAsync("Delete this draft? This cannot be undone."))
+        {
+            return;
+        }
+
+        try
+        {
+            await InvoiceService.DeleteAsync(invoice.Id);
+            _message = "Draft deleted.";
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearNotices()
+    {
+        _error = null;
+        _message = null;
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,43 @@
+@inject MoneyFormatter Formatter
+
+<div class="totals-row">
+    <span>Subtotal</span>
+    <span class="amount">@Formatter.Format(Totals.Subtotal)</span>
+</div>
+
+@if (Totals.DiscountAmount > 0m)
+{
+    <div class="totals-row">
+        <span>Discount@(ShowDiscountPercent ? $" ({DiscountPercent:0.##}%)" : string.Empty)</span>
+        <span class="amount">−@Formatter.Format(Totals.DiscountAmount)</span>
+    </div>
+}
+
+<div class="totals-row">
+    <span>Tax</span>
+    <span class="amount">@Formatter.Format(Totals.TaxTotal)</span>
+</div>
+
+<div class="totals-row grand">
+    <span>Total</span>
+    <span class="amount">@Formatter.Format(Totals.GrandTotal)</span>
+</div>
+
+@if (ShowBalance && Totals.AmountPaid > 0m)
+{
+    <div class="totals-row">
+        <span>Paid</span>
+        <span class="amount">@Formatter.Format(Totals.AmountPaid)</span>
+    </div>
+    <div class="totals-row balance">
+        <span>Balance due</span>
+        <span class="amount">@Formatter.Format(Totals.BalanceDue)</span>
+    </div>
+}
+
+@code {
+    [Parameter] public InvoiceTotals Totals { get; set; } = default!;
+    [Parameter] public bool ShowDiscountPercent { get; set; }
+    [Parameter] public decimal DiscountPercent { get; set; }
+    [Parameter] public bool ShowBalance { get; set; } = true;
+}

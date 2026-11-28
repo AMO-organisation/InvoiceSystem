@@ -1,0 +1,243 @@
+@page "/invoices/{Id:guid}/print"
+@layout PrintLayout
+@inject IInvoiceService InvoiceService
+@inject ICustomerService CustomerService
+@inject ISettingsService Settings
+@inject MoneyFormatter Money
+@inject IJSRuntime JS
+
+<PageTitle>@(_invoice?.Number ?? "Draft invoice") · Leaflet</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Preparing the invoice…</p>
+}
+else if (_notFound)
+{
+    <div class="notice notice-error">That invoice could not be found.</div>
+}
+else
+{
+    <div class="print-toolbar">
+        <a href="invoices" class="btn btn-ghost btn-sm">← Back to invoices</a>
+        <div class="print-toolbar-actions">
+            @if (_invoice!.Status == InvoiceStatus.Draft)
+            {
+                <a href="invoices/@_invoice.Id/edit" class="btn btn-ghost btn-sm">Edit draft</a>
+            }
+            <button class="btn btn-accent btn-sm" @onclick="PrintAsync">Print invoice</button>
+        </div>
+    </div>
+
+    <article class="invoice-paper">
+        @if (_invoice.Status == InvoiceStatus.Draft)
+        {
+            <div class="draft-watermark">DRAFT</div>
+        }
+
+        <header class="invoice-head">
+            <div class="invoice-brand">
+                @if (!string.IsNullOrWhiteSpace(_settings.LogoUrl))
+                {
+                    <img class="invoice-logo" src="@_settings.LogoUrl" alt="@_settings.CompanyName" />
+                }
+                else
+                {
+                    <span class="invoice-mark">L</span>
+                }
+                <div class="invoice-brand-copy">
+                    <div class="invoice-company">@_settings.CompanyName</div>
+                    @if (!_settings.Address.IsEmpty)
+                    {
+                        <div>@_settings.Address.ToSingleLine()</div>
+                    }
+                    <div>
+                        @if (!string.IsNullOrWhiteSpace(_settings.Email))
+                        {
+                            <span>@_settings.Email</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_settings.Phone))
+                        {
+                            <span> · @_settings.Phone</span>
+                        }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_settings.TaxId))
+                    {
+                        <div class="mono">@_settings.TaxId</div>
+                    }
+                </div>
+            </div>
+
+            <div class="invoice-title-block">
+                <div class="invoice-kicker">Invoice</div>
+                <div class="invoice-number">@(_invoice.Number ?? "Draft")</div>
+                <StatusBadge Invoice="_invoice" />
+            </div>
+        </header>
+
+        <div class="invoice-meta">
+            <div class="invoice-billto">
+                <div class="meta-label">Billed to</div>
+                <div class="billto-name">@BillToName</div>
+                @if (!string.IsNullOrWhiteSpace(BillToEmail))
+                {
+                    <div>@BillToEmail</div>
+                }
+                @if (BillToAddress is not null && !BillToAddress.IsEmpty)
+                {
+                    <div>@BillToAddress.ToSingleLine()</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(BillToTaxId))
+                {
+                    <div class="mono">@BillToTaxId</div>
+                }
+            </div>
+
+            <div class="invoice-dates">
+                <div>
+                    <span class="meta-label">Issued</span>
+                    <strong>@_invoice.IssueDate.ToString("MMM d, yyyy")</strong>
+                </div>
+                <div>
+                    <span class="meta-label">Due</span>
+                    <strong>@_invoice.DueDate.ToString("MMM d, yyyy")</strong>
+                </div>
+                <div>
+                    <span class="meta-label">Terms</span>
+                    <strong>@(string.IsNullOrWhiteSpace(_invoice.PaymentTerms) ? "—" : _invoice.PaymentTerms)</strong>
+                </div>
+            </div>
+        </div>
+
+        <table class="invoice-table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Rate</th>
+                    <th class="num">Tax</th>
+                    <th class="num">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in _invoice.LineItems)
+                {
+                    var lineTotal = _totals.Lines.FirstOrDefault(item => item.LineItemId == line.Id);
+                    <tr>
+                        <td>
+                            <span class="line-description">@line.Description</span>
+                            @if (!string.IsNullOrWhiteSpace(line.Unit))
+                            {
+                                <span class="line-unit">@line.Quantity.ToString("0.##") @line.Unit</span>
+                            }
+                        </td>
+                        <td class="num">@line.Quantity.ToString("0.##")</td>
+                        <td class="num">@Money.Format(line.UnitPrice)</td>
+                        <td class="num">@(line.TaxRate == 0m ? "—" : $"{line.TaxRate:0.##}%")</td>
+                        <td class="num">@Money.Format(lineTotal?.Subtotal ?? 0m)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="invoice-summary">
+            <div class="invoice-notes">
+                @if (!string.IsNullOrWhiteSpace(_invoice.Notes))
+                {
+                    <div class="meta-label">Notes</div>
+                    <p>@_invoice.Notes</p>
+                }
+            </div>
+
+            <div class="invoice-totals">
+                <div class="invoice-total-row">
+                    <span>Subtotal</span>
+                    <span>@Money.Format(_totals.Subtotal)</span>
+                </div>
+                @if (_totals.DiscountAmount > 0m)
+                {
+                    <div class="invoice-total-row">
+                        <span>Discount (@_invoice.DiscountPercent.ToString("0.##")%)</span>
+                        <span>−@Money.Format(_totals.DiscountAmount)</span>
+                    </div>
+                }
+                <div class="invoice-total-row">
+                    <span>Tax</span>
+                    <span>@Money.Format(_totals.TaxTotal)</span>
+                </div>
+                <div class="invoice-total-row grand">
+                    <span>Total @_settings.CurrencyCode</span>
+                    <span>@Money.Format(_totals.GrandTotal)</span>
+                </div>
+                @if (_totals.AmountPaid > 0m)
+                {
+                    <div class="invoice-total-row">
+                        <span>Paid</span>
+                        <span>@Money.Format(_totals.AmountPaid)</span>
+                    </div>
+                    <div class="invoice-total-row balance">
+                        <span>Balance due</span>
+                        <span>@Money.Format(_totals.BalanceDue)</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <footer class="invoice-footer">
+            @if (!string.IsNullOrWhiteSpace(_settings.FooterText))
+            {
+                <p>@_settings.FooterText</p>
+            }
+            <span class="mono">@_settings.CompanyName · @_settings.CurrencyCode</span>
+        </footer>
+    </article>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Invoice? _invoice;
+    private InvoiceTotals _totals = null!;
+    private CompanySettings _settings = new();
+    private Customer? _customer;
+    private bool _loading = true;
+    private bool _notFound;
+
+    private string BillToName =>
+        _invoice?.CustomerSnapshot?.Name ?? _customer?.Name ?? _invoice?.CustomerName ?? string.Empty;
+
+    private string? BillToEmail =>
+        _invoice?.CustomerSnapshot?.Email ?? _customer?.Email;
+
+    private Address? BillToAddress =>
+        _invoice?.CustomerSnapshot?.BillingAddress ?? _customer?.BillingAddress;
+
+    private string? BillToTaxId =>
+        _invoice?.CustomerSnapshot?.TaxId ?? _customer?.TaxId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = Settings.Current;
+        _invoice = await InvoiceService.GetByIdAsync(Id);
+
+        if (_invoice is null)
+        {
+            _notFound = true;
+            _loading = false;
+            return;
+        }
+
+        if (_invoice.CustomerSnapshot is null && _invoice.CustomerId != Guid.Empty)
+        {
+            _customer = await CustomerService.GetByIdAsync(_invoice.CustomerId);
+        }
+
+        _totals = InvoiceCalculator.Calculate(_invoice);
+        _loading = false;
+    }
+
+    private async Task PrintAsync()
+    {
+        await JS.InvokeVoidAsync("leaflet.print");
+    }
+}

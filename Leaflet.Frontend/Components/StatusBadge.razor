@@ -1,0 +1,5 @@
+<span class="status-pill @Invoice.CssClass()">@Invoice.Label()</span>
+
+@code {
+    [Parameter] public Invoice Invoice { get; set; } = default!;
+}

@@ -1,0 +1,88 @@
+@inject IJSRuntime JS
+
+@if (_isOpen)
+{
+    <div class="context-backdrop"
+         @onclick="Close"
+         @oncontextmenu="Close"
+         @oncontextmenu:preventDefault="true"></div>
+
+    <div class="context-menu"
+         @ref="_menuElement"
+         role="menu"
+         tabindex="-1"
+         style="left:@(_x)px;top:@(_y)px;"
+         @onkeydown="HandleKeyDown">
+        @foreach (var item in _items)
+        {
+            if (item.SeparatorBefore)
+            {
+                <div class="context-separator"></div>
+            }
+
+            <button type="button"
+                    class="context-item @(item.Danger ? "context-danger" : null)"
+                    role="menuitem"
+                    @onclick="() => InvokeAsync(item)">
+                @item.Label
+            </button>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<ContextMenuItem> _items = [];
+    private ElementReference _menuElement;
+    private bool _isOpen;
+    private bool _needsPosition;
+    private int _x;
+    private int _y;
+
+    public void Show(double x, double y, IEnumerable<ContextMenuItem> items)
+    {
+        _items.Clear();
+        _items.AddRange(items);
+        _x = (int)x;
+        _y = (int)y;
+        _isOpen = true;
+        _needsPosition = true;
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        _isOpen = false;
+        _needsPosition = false;
+        _items.Clear();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_isOpen || !_needsPosition)
+        {
+            return;
+        }
+
+        _needsPosition = false;
+        await JS.InvokeVoidAsync("leaflet.clampContextMenu", _menuElement);
+        await _menuElement.FocusAsync();
+    }
+
+    private async Task InvokeAsync(ContextMenuItem item)
+    {
+        Close();
+
+        if (item.Action is not null)
+        {
+            await item.Action();
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            Close();
+        }
+    }
+}
